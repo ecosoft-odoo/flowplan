@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f8fc" />
+    <title>FlowPlan — Project Timeline</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <section id="authScreen" class="auth-screen hidden">
+      <div class="auth-showcase">
+        <a class="brand brand-light" href="#" aria-label="FlowPlan">
+          <span class="brand-mark"><i></i><i></i><i></i></span>
+          <span>FlowPlan</span>
+        </a>
+        <div class="showcase-copy">
+          <span class="eyebrow">Project planning, clearly.</span>
+          <h1>See every plan.<br />See every change.</h1>
+          <p>Place tasks on a timeline and keep each old plan as a revision, so your team can see what changed.</p>
+        </div>
+        <div class="preview-card" aria-hidden="true">
+          <div class="preview-top"><span></span><span></span></div>
+          <div class="preview-months"><b>AUG</b><b>SEP</b><b>OCT</b></div>
+          <div class="preview-row"><em>Research</em><i class="bar purple" style="left: 32%; width: 24%"></i></div>
+          <div class="preview-row"><em>Design</em><i class="bar dashed" style="left: 44%; width: 20%"></i><i class="bar coral" style="left: 52%; width: 27%"></i></div>
+          <div class="preview-row"><em>Develop</em><i class="bar mint" style="left: 66%; width: 25%"></i></div>
+        </div>
+        <p class="showcase-foot">Simple planning for focused teams.</p>
+      </div>
+
+      <div class="auth-panel">
+        <div class="auth-card">
+          <a class="brand auth-mobile-brand" href="#">
+            <span class="brand-mark"><i></i><i></i><i></i></span><span>FlowPlan</span>
+          </a>
+          <div id="loginView">
+            <span class="eyebrow purple-text">WELCOME BACK</span>
+            <h2>Sign in</h2>
+            <p class="muted">Continue planning your projects.</p>
+            <form id="loginForm" class="form-stack">
+              <label>Email<input id="loginEmail" type="email" autocomplete="email" required placeholder="you@company.com" /></label>
+              <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required placeholder="At least 8 characters" /></label>
+              <button class="btn btn-primary btn-full" type="submit"><span>Sign in</span><span>→</span></button>
+            </form>
+            <button id="demoLogin" class="demo-login" type="button">
+              <span class="demo-avatar">D</span>
+              <span><b>Use demo account</b><small>demo@flowplan.local</small></span>
+              <span>→</span>
+            </button>
+            <p class="auth-switch">No account yet? <button id="showRegister" type="button">Create one</button></p>
+          </div>
+
+          <div id="registerView" class="hidden">
+            <span class="eyebrow purple-text">GET STARTED</span>
+            <h2>Create account</h2>
+            <p class="muted">Start your first project in a few seconds.</p>
+            <form id="registerForm" class="form-stack">
+              <label>Name<input id="registerName" type="text" autocomplete="name" required placeholder="Your name" /></label>
+              <label>Email<input id="registerEmail" type="email" autocomplete="email" required placeholder="you@company.com" /></label>
+              <label>Password<input id="registerPassword" type="password" autocomplete="new-password" minlength="8" required placeholder="At least 8 characters" /></label>
+              <button class="btn btn-primary btn-full" type="submit"><span>Create account</span><span>→</span></button>
+            </form>
+            <p class="auth-switch">Already have an account? <button id="showLogin" type="button">Sign in</button></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div id="appShell" class="app-shell hidden">
+      <aside id="sidebar" class="sidebar">
+        <div class="sidebar-top">
+          <a class="brand" href="#"><span class="brand-mark"><i></i><i></i><i></i></span><span>FlowPlan</span></a>
+          <button id="closeSidebar" class="icon-btn sidebar-close" aria-label="Close menu">×</button>
+        </div>
+
+        <div class="workspace-label"><span>WORKSPACE</span><button id="newProjectQuick" aria-label="Create project">+</button></div>
+        <nav id="projectList" class="project-list" aria-label="Project list"></nav>
+
+        <div class="sidebar-tip">
+          <span class="tip-icon">↗</span>
+          <b>Plans can change</b>
+          <p>Change the task dates and FlowPlan will keep the old plan as a dashed line.</p>
+        </div>
+
+        <div class="profile-menu">
+          <div id="userAvatar" class="avatar">FP</div>
+          <div><b id="userName">User</b><small id="userEmail">—</small></div>
+          <button id="logoutBtn" class="icon-btn" title="Sign out" aria-label="Sign out">↪</button>
+        </div>
+      </aside>
+      <button id="sidebarBackdrop" class="sidebar-backdrop" aria-label="Close menu"></button>
+
+      <main class="main-content">
+        <header class="topbar">
+          <button id="openSidebar" class="icon-btn menu-btn" aria-label="Open menu">☰</button>
+          <div class="topbar-title"><span>Project</span><b id="topProjectName">—</b></div>
+          <div class="topbar-actions">
+            <button class="icon-btn help-btn" title="Old plans are shown with dashed lines">?</button>
+            <div id="topAvatar" class="avatar avatar-small">FP</div>
+          </div>
+        </header>
+
+        <div class="page-wrap">
+          <section id="projectHeader" class="project-header">
+            <div>
+              <div class="project-heading-line"><span id="projectColor" class="project-color"></span><h1 id="projectName">Loading...</h1></div>
+              <p id="projectDescription" class="muted"></p>
+            </div>
+            <button id="newTaskBtn" class="btn btn-primary"><span class="plus">+</span> Add Task</button>
+          </section>
+
+          <section id="statsGrid" class="stats-grid">
+            <article class="stat-card">
+              <span class="stat-icon purple-bg">✓</span>
+              <div><small>ALL TASKS</small><strong id="statTotal">0</strong><span>Tasks</span></div>
+            </article>
+            <article class="stat-card">
+              <span class="stat-icon blue-bg">↗</span>
+              <div><small>IN PROGRESS</small><strong id="statProgress">0</strong><span>Tasks</span></div>
+            </article>
+            <article class="stat-card">
+              <span class="stat-icon orange-bg">!</span>
+              <div><small>DUE SOON</small><strong id="statDue">0</strong><span>Next 7 days</span></div>
+            </article>
+            <article class="stat-card progress-card">
+              <div class="progress-card-top"><div><small>PROGRESS</small><strong id="statPercent">0%</strong></div><span id="progressCaption">0 of 0 tasks</span></div>
+              <div class="progress-track"><i id="progressBar"></i></div>
+            </article>
+          </section>
+
+          <section class="timeline-card">
+            <div class="timeline-toolbar">
+              <div>
+                <h2>Project Timeline</h2>
+                <p>Sorted by the earliest start date, so you can see what comes next.</p>
+              </div>
+              <div class="toolbar-controls">
+                <label class="select-wrap">STATUS
+                  <select id="statusFilter">
+                    <option value="all">All</option>
+                    <option value="todo">Not started</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="review">Review</option>
+                    <option value="done">Done</option>
+                  </select>
+                </label>
+                <div class="zoom-control" role="group" aria-label="Timeline zoom">
+                  <button id="zoomOutBtn" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+                  <button id="fitAllBtn" type="button" title="Fit the full plan on screen">↔ <span>Fit all</span></button>
+                  <button id="zoomInBtn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+                </div>
+                <button id="todayBtn" class="btn btn-secondary">Today</button>
+              </div>
+            </div>
+            <div class="legend">
+              <span><i class="legend-solid"></i>Current plan</span>
+              <span><i class="legend-dashed"></i>Plan before revision</span>
+              <span><i class="legend-today"></i>Today</span>
+            </div>
+            <div id="timelineViewport" class="timeline-viewport">
+              <div id="timeline" class="timeline"></div>
+            </div>
+            <div id="emptyTimeline" class="empty-state hidden">
+              <span class="empty-illustration">↗</span>
+              <h3>No tasks on the timeline</h3>
+              <p>Add your first task and set its dates to start planning.</p>
+              <button id="emptyAddTask" class="btn btn-primary">+ Add first Task</button>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div id="modalBackdrop" class="modal-backdrop hidden"></div>
+
+    <section id="projectModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle">
+      <div class="modal-header"><div><span class="eyebrow purple-text">NEW PROJECT</span><h2 id="projectModalTitle">Create a new project</h2></div><button class="icon-btn modal-close" data-close="projectModal">×</button></div>
+      <form id="projectForm" class="modal-form">
+        <label>Project name<input id="projectFormName" required maxlength="160" placeholder="Example: Mobile App Launch" /></label>
+        <label>Description<textarea id="projectFormDescription" rows="3" placeholder="A short goal or project note"></textarea></label>
+        <fieldset class="color-picker"><legend>Project color</legend>
+          <label><input type="radio" name="projectColor" value="#6C5CE7" checked /><span style="--swatch:#6C5CE7"></span></label>
+          <label><input type="radio" name="projectColor" value="#2F80ED" /><span style="--swatch:#2F80ED"></span></label>
+          <label><input type="radio" name="projectColor" value="#00A896" /><span style="--swatch:#00A896"></span></label>
+          <label><input type="radio" name="projectColor" value="#F2994A" /><span style="--swatch:#F2994A"></span></label>
+          <label><input type="radio" name="projectColor" value="#EB5757" /><span style="--swatch:#EB5757"></span></label>
+        </fieldset>
+        <div class="modal-actions"><button type="button" class="btn btn-secondary" data-close="projectModal">Cancel</button><button class="btn btn-primary" type="submit">Create project</button></div>
+      </form>
+    </section>
+
+    <section id="taskModal" class="modal modal-wide hidden" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
+      <div class="modal-header"><div><span id="taskModalEyebrow" class="eyebrow purple-text">NEW TASK</span><h2 id="taskModalTitle">Add Task</h2></div><button class="icon-btn modal-close" data-close="taskModal">×</button></div>
+      <form id="taskForm" class="modal-form">
+        <input id="taskId" type="hidden" />
+        <label>Task name<input id="taskTitle" required maxlength="180" placeholder="What needs to be done?" /></label>
+        <label>Details<textarea id="taskDescription" rows="2" placeholder="More details (optional)"></textarea></label>
+        <div class="form-grid two">
+          <label>Start date<input id="taskStart" type="date" required /></label>
+          <label>End date<input id="taskEnd" type="date" required /></label>
+        </div>
+        <div class="form-grid three">
+          <label>Status<select id="taskStatus"><option value="todo">Not started</option><option value="in_progress">In progress</option><option value="review">Review</option><option value="done">Done</option></select></label>
+          <label>Priority<select id="taskPriority"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></label>
+          <label>Assignee<input id="taskAssignee" maxlength="120" placeholder="Person or team" /></label>
+        </div>
+        <label id="revisionNoteWrap" class="revision-note hidden">Reason for the change<textarea id="revisionNote" rows="2" maxlength="300" placeholder="Example: Waiting for client details, moved by 3 days"></textarea><small>When you change the start or end date, the old dates will stay on the timeline as a dashed line.</small></label>
+        <div class="modal-actions"><button type="button" class="btn btn-secondary" data-close="taskModal">Cancel</button><button id="taskSubmitBtn" class="btn btn-primary" type="submit">Add Task</button></div>
+      </form>
+    </section>
+
+    <aside id="revisionDrawer" class="revision-drawer" aria-hidden="true">
+      <div class="drawer-header"><div><span class="eyebrow purple-text">TASK DETAIL</span><h2 id="drawerTitle">—</h2></div><button id="closeDrawer" class="icon-btn">×</button></div>
+      <div class="drawer-body">
+        <div id="drawerMeta" class="drawer-meta"></div>
+        <div class="drawer-section"><div class="drawer-section-title"><h3>Revision history</h3><span id="revisionCount" class="count-pill">0</span></div><div id="revisionList" class="revision-list"></div></div>
+      </div>
+      <div class="drawer-footer"><button id="editTaskBtn" class="btn btn-primary btn-full">Edit Task / Revision</button></div>
+    </aside>
+
+    <div id="toast" class="toast" role="status"><span id="toastIcon">✓</span><p id="toastText">Saved</p></div>
+    <div id="loading" class="loading"><span></span></div>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
