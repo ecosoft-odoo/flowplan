@@ -107,7 +107,11 @@
               <div class="project-heading-line"><span id="projectColor" class="project-color"></span><h1 id="projectName">Loading...</h1></div>
               <p id="projectDescription" class="muted"></p>
             </div>
-            <button id="newTaskBtn" class="btn btn-primary"><span class="plus">+</span> Add Task</button>
+            <div class="header-actions">
+              <button id="exportExcelBtn" class="btn btn-secondary" title="Download the plan as an Excel file"><span class="btn-icon">↑</span><span class="btn-label">Export</span></button>
+              <button id="importExcelBtn" class="btn btn-secondary" title="Add tasks from an Excel file"><span class="btn-icon">↓</span><span class="btn-label">Import</span></button>
+              <button id="newTaskBtn" class="btn btn-primary"><span class="plus">+</span> Add Task</button>
+            </div>
           </section>
 
           <section id="statsGrid" class="stats-grid">
@@ -165,7 +169,10 @@
               <span class="empty-illustration">↗</span>
               <h3>No tasks on the timeline</h3>
               <p>Add your first task and set its dates to start planning.</p>
-              <button id="emptyAddTask" class="btn btn-primary">+ Add first Task</button>
+              <div class="empty-actions">
+                <button id="emptyAddTask" class="btn btn-primary">+ Add first Task</button>
+                <button id="emptyImport" class="btn btn-secondary">↓ Import from Excel</button>
+              </div>
             </div>
           </section>
         </div>
@@ -187,6 +194,25 @@
           <label><input type="radio" name="projectColor" value="#EB5757" /><span style="--swatch:#EB5757"></span></label>
         </fieldset>
         <div class="modal-actions"><button type="button" class="btn btn-secondary" data-close="projectModal">Cancel</button><button class="btn btn-primary" type="submit">Create project</button></div>
+      </form>
+    </section>
+
+    <section id="importModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="importModalTitle">
+      <div class="modal-header"><div><span class="eyebrow purple-text">EXCEL</span><h2 id="importModalTitle">Import tasks from Excel</h2></div><button class="icon-btn modal-close" data-close="importModal">×</button></div>
+      <form id="importForm" class="modal-form">
+        <p class="import-hint">The first row needs the columns <b>Task</b>, <b>Start</b>, and <b>End</b>. Optional columns: <b>Description</b>, <b>Status</b>, <b>Priority</b>, and <b>Assignee</b>. Use Excel dates or YYYY-MM-DD.</p>
+        <label>Excel file (.xlsx)<input id="importFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required /></label>
+        <fieldset class="import-mode">
+          <legend>How should tasks be imported?</legend>
+          <label><input type="radio" name="importMode" value="replace" checked /><span><b>Replace current tasks</b><small>Delete all tasks and revision history in this project, then import the file.</small></span></label>
+          <label><input type="radio" name="importMode" value="append" /><span><b>Add to current tasks</b><small>Keep existing tasks and add every row from the file.</small></span></label>
+        </fieldset>
+        <div id="importErrors" class="import-errors hidden"></div>
+        <div class="modal-actions">
+          <a id="templateLink" class="template-link" href="#">Download template</a>
+          <button type="button" class="btn btn-secondary" data-close="importModal">Cancel</button>
+          <button class="btn btn-primary" type="submit">Import tasks</button>
+        </div>
       </form>
     </section>
 

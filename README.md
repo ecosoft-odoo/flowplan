@@ -14,6 +14,7 @@ A simple project timeline that keeps old task dates so you can compare them with
 - Show the current plan as a solid bar and the old plan as a dashed bar.
 - Click a task to view its revision history and notes.
 - View task totals, work in progress, upcoming due dates, and progress.
+- Export the plan as an Excel file and import tasks from an Excel file.
 - Works on desktop, tablet, and mobile.
 
 ## Start with Docker
@@ -42,6 +43,27 @@ Stop the app and remove all database data:
 ```bash
 docker compose down -v
 ```
+
+## Excel export and import
+
+Use the **Export** and **Import** buttons next to **Add Task** to move a project plan in and out of Excel (`.xlsx`). Exported workbooks contain two sheets:
+
+- **Timeline** opens first and shows task details next to a color-filled daily, weekly, or monthly timeline. The scale is selected automatically from the overall project duration. Year, month, and day/period are split across three header rows and stored as text, so narrow columns do not display Excel `###`. Month columns alternate between white and a subtle tinted background, while task colors remain prominent. Previous revision plans appear on separate muted rows above the current plan.
+- **Raw Data** contains one current task per row for reliable editing and re-import. Import reads this sheet automatically, so formatting or colors in Timeline do not affect task data.
+
+The first row of the sheet holds the column names:
+
+| Column | Required | Values |
+| --- | --- | --- |
+| `Task` | Yes | Task name |
+| `Start` | Yes | Excel date or `YYYY-MM-DD` |
+| `End` | Yes | Excel date or `YYYY-MM-DD`, on or after Start |
+| `Description` | No | Free text |
+| `Status` | No | `Not started`, `In progress`, `Review`, or `Done` (defaults to Not started) |
+| `Priority` | No | `Low`, `Medium`, or `High` (defaults to Medium) |
+| `Assignee` | No | Person or team |
+
+Import offers two modes. **Replace current tasks** is the default: after every row passes validation, the app deletes the project's existing tasks and revision history and imports the file in one database transaction. **Add to current tasks** keeps existing data and appends every imported row. If replacement fails, the transaction restores the existing plan. Files without a **Raw Data** sheet remain compatible: the app uses a sheet named **Tasks**, or otherwise the first sheet. Exporting an empty project gives a ready-made template — the same file is linked as **Download template** in the import dialog.
 
 ## Environment variables
 
@@ -76,7 +98,7 @@ GitHub Actions runs these checks on every push and pull request to `main`:
 - Install dependencies from `package-lock.json` and check JavaScript syntax.
 - Audit production npm dependencies for high-severity issues.
 - Build the Docker image and start the app with PostgreSQL.
-- Test health, sign-in, projects, timeline data, and revision history.
+- Test health, sign-in, projects, timeline data, revision history, and Excel export/import.
 
 Dependabot checks npm, Docker, and GitHub Actions dependencies every week.
 
