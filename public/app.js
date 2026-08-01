@@ -471,6 +471,7 @@ function openModal(id) {
 function closeModals() {
   el('projectModal').classList.add('hidden');
   el('taskModal').classList.add('hidden');
+  el('importModal').classList.add('hidden');
   if (!el('revisionDrawer').classList.contains('open')) el('modalBackdrop').classList.add('hidden');
 }
 
@@ -608,6 +609,94 @@ function scrollToToday() {
   viewport.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
 }
 
+function excelUrl(action) {
+  return `/api/projects/${state.selectedProjectId}/${action}`;
+}
+
+function projectSlug() {
+  return (state.project?.name || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
+}
+
+function openImportModal() {
+  if (!state.selectedProjectId) {
+    openProjectModal();
+    showToast('Create a project before importing tasks.', 'error');
+    return;
+  }
+  el('importForm').reset();
+  el('importErrors').classList.add('hidden');
+  el('templateLink').href = excelUrl('export');
+  closeDrawer();
+  openModal('importModal');
+}
+
+function showImportErrors(rowErrors) {
+  el('importErrors').innerHTML = `<b>Fix these rows and import again:</b><ul>${rowErrors.map((error) => `<li>${escapeHtml(error)}</li>`).join('')}</ul>`;
+  el('importErrors').classList.remove('hidden');
+}
+
+async function exportExcel() {
+  if (!state.selectedProjectId) {
+    showToast('Select a project first.', 'error');
+    return;
+  }
+  setLoading(true);
+  try {
+    const response = await fetch(excelUrl('export'), { credentials: 'same-origin' });
+    if (!response.ok) {
+      if (response.status === 401) showAuth();
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.error || 'Could not export this project.');
+    }
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `flowplan-${projectSlug()}.xlsx`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast('Excel file downloaded');
+  } catch (error) {
+    showToast(error.message, 'error');
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function importExcel(event) {
+  event.preventDefault();
+  const file = el('importFile').files[0];
+  if (!file) {
+    showToast('Choose an Excel (.xlsx) file first.', 'error');
+    return;
+  }
+  el('importErrors').classList.add('hidden');
+  setLoading(true);
+  try {
+    const importMode = document.querySelector('input[name="importMode"]:checked')?.value || 'replace';
+    const response = await fetch(`${excelUrl('import')}?mode=${encodeURIComponent(importMode)}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: await file.arrayBuffer(),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      if (response.status === 401) showAuth();
+      if (data?.rowErrors?.length) showImportErrors(data.rowErrors);
+      throw new Error(data?.error || 'Could not import this file.');
+    }
+    closeModals();
+    await Promise.all([loadTimeline(state.selectedProjectId), refreshProjectList()]);
+    showToast(importMode === 'replace'
+      ? `Replaced current plan with ${data.imported} imported task${data.imported === 1 ? '' : 's'}`
+      : `Added ${data.imported} task${data.imported === 1 ? '' : 's'} from Excel`);
+  } catch (error) {
+    showToast(error.message, 'error');
+  } finally {
+    setLoading(false);
+  }
+}
+
 function bindEvents() {
   el('loginForm').addEventListener('submit', (event) => { event.preventDefault(); authenticate('login'); });
   el('registerForm').addEventListener('submit', (event) => { event.preventDefault(); authenticate('register'); });
@@ -630,6 +719,10 @@ function bindEvents() {
   el('newProjectQuick').addEventListener('click', openProjectModal);
   el('newTaskBtn').addEventListener('click', () => openTaskModal());
   el('emptyAddTask').addEventListener('click', () => openTaskModal());
+  el('exportExcelBtn').addEventListener('click', exportExcel);
+  el('importExcelBtn').addEventListener('click', openImportModal);
+  el('emptyImport').addEventListener('click', openImportModal);
+  el('importForm').addEventListener('submit', importExcel);
   el('projectForm').addEventListener('submit', saveProject);
   el('taskForm').addEventListener('submit', saveTask);
   el('taskStart').addEventListener('change', updateRevisionNoteVisibility);

@@ -3,6 +3,7 @@ const express = require('express');
 const helmet = require('helmet');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const ExcelJS = require('exceljs');
 const { pool, initializeDatabase } = require('./db');
 
 const app = express();
@@ -71,6 +72,386 @@ async function memberProject(userId, projectId) {
      WHERE p.id = $1 AND pm.user_id = $2`,
     [projectId, userId],
   );
+}
+
+const excelMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+const excelColumns = [
+  { header: 'Task', key: 'title', width: 36 },
+  { header: 'Description', key: 'description', width: 44 },
+  { header: 'Start', key: 'start', width: 14 },
+  { header: 'End', key: 'end', width: 14 },
+  { header: 'Status', key: 'status', width: 14 },
+  { header: 'Priority', key: 'priority', width: 12 },
+  { header: 'Assignee', key: 'assignee', width: 18 },
+];
+
+const statusOptions = { todo: 'Not started', in_progress: 'In progress', review: 'Review', done: 'Done' };
+const priorityOptions = { low: 'Low', medium: 'Medium', high: 'High' };
+
+const excelImportFields = [
+  ['title', ['task', 'task name', 'title', 'name']],
+  ['description', ['description', 'details', 'detail', 'note', 'notes']],
+  ['start', ['start', 'start date', 'start_date', 'from', 'begin']],
+  ['end', ['end', 'end date', 'end_date', 'due', 'due date', 'deadline', 'to', 'finish']],
+  ['status', ['status', 'state']],
+  ['priority', ['priority', 'importance']],
+  ['assignee', ['assignee', 'owner', 'person', 'responsible']],
+];
+
+function excelCellValue(cell) {
+  const value = cell.value;
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    if (value.result !== undefined) return value.result;
+    if (value.richText) return value.richText.map((part) => part.text).join('');
+    if (value.text !== undefined) return value.text;
+  }
+  return value;
+}
+
+function excelDateToIso(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${value.getFullYear()}-${month}-${day}`;
+  }
+  if (typeof value === 'number' && value > 0 && value < 200000) {
+    return new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86_400_000).toISOString().slice(0, 10);
+  }
+  const text = cleanText(value, 40);
+  return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : '';
+}
+
+function localDateFromIso(iso) {
+  const [year, month, day] = iso.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function addIsoDays(iso, days) {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function addIsoMonths(iso, months) {
+  const [year, month] = iso.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1 + months, 1));
+  return date.toISOString().slice(0, 10);
+}
+
+function excelArgb(hex, fallback = 'FF6C5CE7') {
+  return /^#[0-9a-f]{6}$/i.test(String(hex)) ? `FF${hex.slice(1).toUpperCase()}` : fallback;
+}
+
+function solidFill(argb) {
+  return { type: 'pattern', pattern: 'solid', fgColor: { argb } };
+}
+
+function timelinePeriods(tasks) {
+  const ranges = tasks.flatMap((task) => [
+    [databaseDate(task.start_date), databaseDate(task.end_date)],
+    ...(task.revisions || []).map((revision) => [
+      databaseDate(revision.previous_start_date),
+      databaseDate(revision.previous_end_date),
+    ]),
+  ]);
+  if (!ranges.length) return { unit: 'day', periods: [] };
+
+  const first = ranges.reduce((minimum, range) => (range[0] < minimum ? range[0] : minimum), ranges[0][0]);
+  const last = ranges.reduce((maximum, range) => (range[1] > maximum ? range[1] : maximum), ranges[0][1]);
+  const dayCount = Math.round((new Date(`${last}T00:00:00Z`) - new Date(`${first}T00:00:00Z`)) / 86_400_000) + 1;
+  let unit = 'month';
+  let cursor = `${first.slice(0, 7)}-01`;
+  if (dayCount <= 45) {
+    unit = 'day';
+    cursor = first;
+  } else if (dayCount <= 180) {
+    unit = 'week';
+    cursor = first;
+  }
+
+  const periods = [];
+  while (cursor <= last && periods.length < 500) {
+    let end;
+    if (unit === 'day') {
+      end = cursor;
+    } else if (unit === 'week') {
+      end = addIsoDays(cursor, 6);
+    } else {
+      const nextMonth = addIsoMonths(cursor, 1);
+      end = addIsoDays(nextMonth, -1);
+    }
+    periods.push({ start: cursor, end });
+    cursor = unit === 'day' ? addIsoDays(cursor, 1) : unit === 'week' ? addIsoDays(cursor, 7) : addIsoMonths(cursor, 1);
+  }
+  return { unit, periods };
+}
+
+function timelineHeaderParts(period, unit) {
+  const start = new Date(`${period.start}T00:00:00Z`);
+  const end = new Date(`${period.end}T00:00:00Z`);
+  const startYear = start.getUTCFullYear();
+  const endYear = end.getUTCFullYear();
+  const startMonth = start.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+  const endMonth = end.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+  return {
+    year: startYear === endYear ? String(startYear) : `${startYear}/${endYear}`,
+    month: startMonth === endMonth ? startMonth : `${startMonth}/${endMonth}`,
+    day: unit === 'day' ? String(start.getUTCDate()) : unit === 'week' ? `${start.getUTCDate()}–${end.getUTCDate()}` : '',
+  };
+}
+
+function mergeMatchingHeaders(sheet, rowNumber, firstColumn, values) {
+  let groupStart = 0;
+  for (let index = 1; index <= values.length; index += 1) {
+    if (index === values.length || values[index] !== values[groupStart]) {
+      if (index - groupStart > 1) {
+        sheet.mergeCells(rowNumber, firstColumn + groupStart, rowNumber, firstColumn + index - 1);
+      }
+      groupStart = index;
+    }
+  }
+}
+
+function alternatingMonthFills(periods) {
+  let band = -1;
+  let previousMonth = '';
+  return periods.map((period) => {
+    const month = period.start.slice(0, 7);
+    if (month !== previousMonth) {
+      band += 1;
+      previousMonth = month;
+    }
+    return band % 2 === 0 ? 'FFFFFFFF' : 'FFF4F2FC';
+  });
+}
+
+function styleRawDataSheet(sheet, projectColor) {
+  const header = sheet.getRow(1);
+  header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  header.fill = solidFill(projectColor);
+  header.height = 22;
+  header.alignment = { vertical: 'middle' };
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  sheet.autoFilter = { from: 'A1', to: 'G1' };
+  for (let rowNumber = 2; rowNumber <= 501; rowNumber += 1) {
+    sheet.getCell(rowNumber, 5).dataValidation = {
+      type: 'list', allowBlank: true, formulae: ['"Not started,In progress,Review,Done"'],
+    };
+    sheet.getCell(rowNumber, 6).dataValidation = {
+      type: 'list', allowBlank: true, formulae: ['"Low,Medium,High"'],
+    };
+  }
+}
+
+function addTimelineSheet(workbook, project, tasks) {
+  const sheet = workbook.addWorksheet('Timeline', { properties: { tabColor: { argb: excelArgb(project.color) } } });
+  const detailColumns = [
+    { header: 'Task', key: 'title', width: 32 },
+    { header: 'Assignee', key: 'assignee', width: 18 },
+    { header: 'Status', key: 'status', width: 15 },
+    { header: 'Version', key: 'version', width: 15 },
+    { header: 'Start', key: 'start', width: 13 },
+    { header: 'End', key: 'end', width: 13 },
+    { header: 'Revision note', key: 'note', width: 35 },
+  ];
+  const { unit, periods } = timelinePeriods(tasks);
+  sheet.columns = [
+    ...detailColumns,
+    ...periods.map((period, index) => ({
+      key: `period${index}`,
+      width: unit === 'day' ? 4 : unit === 'week' ? 8 : 9,
+    })),
+  ];
+
+  const lastColumn = Math.max(detailColumns.length + periods.length, detailColumns.length);
+  sheet.mergeCells(1, 1, 1, lastColumn);
+  const titleCell = sheet.getCell(1, 1);
+  titleCell.value = `${project.name} · Project Timeline`;
+  titleCell.font = { bold: true, size: 18, color: { argb: 'FFFFFFFF' } };
+  titleCell.fill = solidFill(excelArgb(project.color));
+  titleCell.alignment = { vertical: 'middle' };
+  sheet.getRow(1).height = 32;
+
+  sheet.getCell('A2').value = `Scale: ${unit === 'day' ? 'Daily' : unit === 'week' ? 'Weekly' : 'Monthly'}`;
+  sheet.getCell('B2').value = 'Current plan';
+  sheet.getCell('B2').fill = solidFill('FF6C5CE7');
+  sheet.getCell('B2').font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  sheet.getCell('C2').value = 'Previous plan';
+  sheet.getCell('C2').fill = solidFill('FFE2E4EA');
+  sheet.getCell('C2').font = { bold: true, color: { argb: 'FF676B78' } };
+  sheet.getCell('D2').value = 'Task color = scheduled period · Alternating background = month';
+  sheet.mergeCells(2, 4, 2, 7);
+  sheet.getRow(2).height = 22;
+
+  detailColumns.forEach((column, index) => {
+    const columnNumber = index + 1;
+    sheet.mergeCells(4, columnNumber, 6, columnNumber);
+    const cell = sheet.getCell(4, columnNumber);
+    cell.value = column.header;
+    cell.alignment = { vertical: 'middle', horizontal: index === 0 ? 'left' : 'center', wrapText: true };
+  });
+  const headerParts = periods.map((period) => timelineHeaderParts(period, unit));
+  const monthFills = alternatingMonthFills(periods);
+  const firstTimelineColumn = detailColumns.length + 1;
+  headerParts.forEach((parts, index) => {
+    const columnNumber = firstTimelineColumn + index;
+    sheet.getCell(4, columnNumber).value = parts.year;
+    sheet.getCell(5, columnNumber).value = parts.month;
+    sheet.getCell(6, columnNumber).value = parts.day;
+  });
+  for (let rowNumber = 4; rowNumber <= 6; rowNumber += 1) {
+    for (let columnNumber = 1; columnNumber <= lastColumn; columnNumber += 1) {
+      const cell = sheet.getCell(rowNumber, columnNumber);
+      cell.font = { bold: true, color: { argb: rowNumber === 4 && columnNumber >= firstTimelineColumn ? 'FFFFFFFF' : 'FF20212B' } };
+      const timelineIndex = columnNumber - firstTimelineColumn;
+      cell.fill = solidFill(rowNumber === 4 && columnNumber >= firstTimelineColumn
+        ? excelArgb(project.color)
+        : columnNumber >= firstTimelineColumn ? monthFills[timelineIndex] : 'FFEFEDFF');
+      if (columnNumber >= firstTimelineColumn) {
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      }
+      cell.border = { bottom: { style: 'thin', color: { argb: 'FFD8D5ED' } } };
+    }
+  }
+  mergeMatchingHeaders(sheet, 4, firstTimelineColumn, headerParts.map((parts) => parts.year));
+  mergeMatchingHeaders(sheet, 5, firstTimelineColumn, headerParts.map((parts) => parts.month));
+  sheet.getRow(4).height = 22;
+  sheet.getRow(5).height = 21;
+  sheet.getRow(6).height = 21;
+
+  const currentColors = {
+    todo: 'FF8F93A3', in_progress: 'FF6C5CE7', review: 'FFF2994A', done: 'FF00A896',
+  };
+  for (const task of tasks) {
+    const versions = (task.revisions || []).map((revision, index) => ({
+      version: `Previous ${index + 1}`,
+      start: databaseDate(revision.previous_start_date),
+      end: databaseDate(revision.previous_end_date),
+      note: revision.note || '',
+      previous: true,
+    }));
+    versions.push({
+      version: 'Current', start: databaseDate(task.start_date), end: databaseDate(task.end_date), note: '', previous: false,
+    });
+
+    for (const version of versions) {
+      const row = sheet.addRow({
+        title: task.title,
+        assignee: task.assignee,
+        status: statusOptions[task.status] || task.status,
+        version: version.version,
+        start: localDateFromIso(version.start),
+        end: localDateFromIso(version.end),
+        note: version.note,
+      });
+      row.getCell(5).numFmt = 'yyyy-mm-dd';
+      row.getCell(6).numFmt = 'yyyy-mm-dd';
+      row.height = 22;
+      row.alignment = { vertical: 'middle' };
+      if (version.previous) {
+        for (let column = 1; column <= detailColumns.length; column += 1) {
+          row.getCell(column).font = { italic: true, color: { argb: 'FF777B88' } };
+          row.getCell(column).fill = solidFill('FFF7F7F9');
+        }
+      } else {
+        row.getCell(4).font = { bold: true, color: { argb: currentColors[task.status] || 'FF6C5CE7' } };
+      }
+      periods.forEach((period, index) => {
+        const cell = row.getCell(detailColumns.length + index + 1);
+        cell.fill = version.start <= period.end && version.end >= period.start
+          ? solidFill(version.previous ? 'FFE2E4EA' : (currentColors[task.status] || 'FF6C5CE7'))
+          : solidFill(monthFills[index]);
+        cell.border = {
+          left: { style: 'hair', color: { argb: 'FFE7E8ED' } },
+          right: { style: 'hair', color: { argb: 'FFE7E8ED' } },
+        };
+      });
+    }
+  }
+
+  if (!tasks.length) {
+    sheet.mergeCells('A7:G7');
+    sheet.getCell('A7').value = 'No tasks yet. Add rows in the Raw Data sheet, then import this file.';
+    sheet.getCell('A7').font = { italic: true, color: { argb: 'FF777B88' } };
+  }
+  sheet.views = [{ state: 'frozen', xSplit: 7, ySplit: 6, topLeftCell: 'H7', activeCell: 'H7' }];
+  sheet.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+  sheet.headerFooter.oddFooter = '&LFlowPlan&CPage &P of &N&R&D';
+  return sheet;
+}
+
+function matchExcelOption(value, options) {
+  const text = cleanText(value, 40).toLowerCase().replace(/[_-]+/g, ' ');
+  if (!text) return null;
+  const match = Object.entries(options).find(
+    ([option, label]) => text === option.replaceAll('_', ' ') || text === label.toLowerCase(),
+  );
+  return match ? match[0] : undefined;
+}
+
+function parseTaskSheet(sheet) {
+  const result = { tasks: [], rowErrors: [], missingColumns: [] };
+  const columns = {};
+  sheet.getRow(1).eachCell({ includeEmpty: false }, (cell, colNumber) => {
+    const text = cleanText(excelCellValue(cell), 60).toLowerCase();
+    const match = excelImportFields.find(([, aliases]) => aliases.includes(text));
+    if (match && !Object.values(columns).includes(match[0])) columns[colNumber] = match[0];
+  });
+  const fields = Object.values(columns);
+  if (!fields.includes('title')) result.missingColumns.push('Task');
+  if (!fields.includes('start')) result.missingColumns.push('Start');
+  if (!fields.includes('end')) result.missingColumns.push('End');
+  if (result.missingColumns.length || sheet.actualRowCount < 2) return result;
+
+  if (sheet.actualRowCount - 1 > 500) {
+    result.rowErrors.push('The file has more than 500 task rows. Split it into smaller files.');
+    return result;
+  }
+
+  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const record = {};
+    row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+      const field = columns[colNumber];
+      if (field) record[field] = excelCellValue(cell);
+    });
+    const hasAnyValue = Object.values(record).some(
+      (value) => value !== null && value !== undefined && String(value).trim() !== '',
+    );
+    if (!hasAnyValue) return;
+
+    const title = cleanText(record.title, 180);
+    const start = excelDateToIso(record.start);
+    const end = excelDateToIso(record.end);
+    const errors = [];
+    if (!title) errors.push('enter a task name');
+    if (!validDate(start)) errors.push('the start date is missing or not valid (use YYYY-MM-DD)');
+    if (!validDate(end)) errors.push('the end date is missing or not valid (use YYYY-MM-DD)');
+    if (validDate(start) && validDate(end) && end < start) errors.push('the end date is before the start date');
+
+    const statusText = cleanText(record.status, 40);
+    const status = matchExcelOption(statusText, statusOptions);
+    if (status === undefined) errors.push(`status "${statusText}" is not recognized (use Not started, In progress, Review, or Done)`);
+    const priorityText = cleanText(record.priority, 40);
+    const priority = matchExcelOption(priorityText, priorityOptions);
+    if (priority === undefined) errors.push(`priority "${priorityText}" is not recognized (use Low, Medium, or High)`);
+
+    if (errors.length) {
+      result.rowErrors.push(`Row ${rowNumber}: ${errors.join('; ')}.`);
+      return;
+    }
+    result.tasks.push({
+      title,
+      description: cleanText(record.description, 2000),
+      start,
+      end,
+      status: status || 'todo',
+      priority: priority || 'medium',
+      assignee: cleanText(record.assignee, 120),
+    });
+  });
+  return result;
 }
 
 app.post('/api/auth/register', async (req, res, next) => {
@@ -326,6 +707,130 @@ app.delete('/api/tasks/:taskId', requireAuth, async (req, res, next) => {
   }
 });
 
+app.get('/api/projects/:projectId/export', requireAuth, async (req, res, next) => {
+  try {
+    const projectResult = await memberProject(req.user.id, req.params.projectId);
+    if (!projectResult.rowCount) return res.status(404).json({ error: 'Project not found.' });
+    const project = projectResult.rows[0];
+    const taskResult = await pool.query(
+      `SELECT t.*,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'previous_start_date', r.previous_start_date,
+              'previous_end_date', r.previous_end_date,
+              'note', r.note,
+              'created_at', r.created_at
+            ) ORDER BY r.created_at, r.id
+          ) FILTER (WHERE r.id IS NOT NULL), '[]'
+        ) AS revisions
+       FROM tasks t
+       LEFT JOIN task_revisions r ON r.task_id = t.id
+       WHERE t.project_id = $1
+       GROUP BY t.id
+       ORDER BY t.start_date, t.end_date, t.id`,
+      [project.id],
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'FlowPlan';
+    workbook.created = new Date();
+    addTimelineSheet(workbook, project, taskResult.rows);
+    const sheet = workbook.addWorksheet('Raw Data');
+    sheet.columns = excelColumns.map((column) => ({ ...column }));
+    for (const task of taskResult.rows) {
+      const row = sheet.addRow({
+        title: task.title,
+        description: task.description,
+        start: localDateFromIso(databaseDate(task.start_date)),
+        end: localDateFromIso(databaseDate(task.end_date)),
+        status: statusOptions[task.status] || task.status,
+        priority: priorityOptions[task.priority] || task.priority,
+        assignee: task.assignee,
+      });
+      row.getCell('start').numFmt = 'yyyy-mm-dd';
+      row.getCell('end').numFmt = 'yyyy-mm-dd';
+    }
+    styleRawDataSheet(sheet, excelArgb(project.color));
+    workbook.views = [{ activeTab: 0 }];
+
+    const slug = project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
+    res.setHeader('Content-Type', excelMime);
+    res.setHeader('Content-Disposition', `attachment; filename="flowplan-${slug}.xlsx"`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post(
+  '/api/projects/:projectId/import',
+  requireAuth,
+  express.raw({ type: [excelMime, 'application/vnd.ms-excel', 'application/octet-stream'], limit: '5mb' }),
+  async (req, res, next) => {
+    try {
+      const projectResult = await memberProject(req.user.id, req.params.projectId);
+      if (!projectResult.rowCount) return res.status(404).json({ error: 'Project not found.' });
+      const project = projectResult.rows[0];
+      const importMode = cleanText(req.query.mode, 20) || 'replace';
+      if (!['replace', 'append'].includes(importMode)) {
+        return res.status(400).json({ error: 'Import mode must be replace or append.' });
+      }
+      if (!Buffer.isBuffer(req.body) || !req.body.length) {
+        return res.status(400).json({ error: 'Send an Excel (.xlsx) file as the request body.' });
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      try {
+        await workbook.xlsx.load(req.body);
+      } catch {
+        return res.status(400).json({ error: 'This file is not a valid Excel (.xlsx) file.' });
+      }
+      const sheet = workbook.getWorksheet('Raw Data') || workbook.getWorksheet('Tasks') || workbook.worksheets[0];
+      if (!sheet) return res.status(400).json({ error: 'The Excel file has no worksheet.' });
+
+      const { tasks, rowErrors, missingColumns } = parseTaskSheet(sheet);
+      if (missingColumns.length) {
+        return res.status(400).json({ error: `Add these columns to the first row: ${missingColumns.join(', ')}.` });
+      }
+      if (rowErrors.length) {
+        return res.status(400).json({ error: 'Some rows are not valid. Fix them and import the file again.', rowErrors });
+      }
+      if (!tasks.length) {
+        return res.status(400).json({ error: 'The Excel file has no task rows to import.' });
+      }
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        let replaced = 0;
+        if (importMode === 'replace') {
+          const deleted = await client.query('DELETE FROM tasks WHERE project_id = $1', [project.id]);
+          replaced = deleted.rowCount;
+        }
+        for (const task of tasks) {
+          await client.query(
+            `INSERT INTO tasks
+              (project_id, title, description, start_date, end_date, status, priority, assignee, created_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [project.id, task.title, task.description, task.start, task.end, task.status, task.priority, task.assignee, req.user.id],
+          );
+        }
+        await client.query('UPDATE projects SET updated_at = NOW() WHERE id = $1', [project.id]);
+        await client.query('COMMIT');
+        res.status(201).json({ imported: tasks.length, mode: importMode, replaced });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 app.get('/api/health', async (_req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -338,6 +843,9 @@ app.get('/api/health', async (_req, res) => {
 app.get('/{*path}', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 
 app.use((error, _req, res, _next) => {
+  if (error.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'The request is too large. Keep files under 5 MB.' });
+  }
   console.error(error);
   res.status(500).json({ error: 'Something went wrong. Please try again.' });
 });
